@@ -2,6 +2,8 @@ Setting up the Prompt Guard gateway and running it alongside a local Llama model
 
 **Phase 1: Initial Setup (One-Time)**
 
+
+
 1. **Install Python with PATH Configured:** 2 min.
 Download the official Windows installer from [python.org/downloads](https://www.python.org/downloads/). Run the downloaded `.exe` file, ensure you check the box labeled **Add python.exe to PATH** on the first screen, and click **Install Now**.
 
