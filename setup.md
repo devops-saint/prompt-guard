@@ -1,3 +1,5 @@
+pull up in local --> python -m uvicorn proxy:app --reload --port 8080
+
 Setting up the Prompt Guard gateway and running it alongside a local Llama model on a fresh Windows PC requires configuring Python, installing Ollama, and launching the application server.
 
 **Phase 1: Initial Setup (One-Time)**

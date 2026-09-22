@@ -2,53 +2,126 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Prompt guard console</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prompt Guard Gateway</title>
 <style>
   * { box-sizing: border-box; }
   body {
     margin: 0; background: #0f1115; color: #e8e8e6;
-    font-family: -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.6;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.6;
   }
-  .wrap { max-width: 820px; margin: 0 auto; padding: 32px 20px 64px; }
-  h1 { font-size: 20px; font-weight: 500; margin: 0 0 4px; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; }
   .sub { color: #9a9a95; font-size: 13.5px; margin: 0 0 24px; }
-  .card { background: #17191f; border: 1px solid #2a2c33; border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; }
-  .card h2 { font-size: 14px; font-weight: 500; margin: 0 0 10px; color: #cfcfca; }
+  .card { background: #17191f; border: 1px solid #2a2c33; border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 14px; font-weight: 600; margin: 0 0 10px; color: #cfcfca; text-transform: uppercase; letter-spacing: 0.5px; }
+  
   textarea {
-    width: 100%; min-height: 100px; resize: vertical; border-radius: 6px;
+    width: 100%; min-height: 110px; resize: vertical; border-radius: 6px;
     border: 1px solid #2a2c33; background: #0f1115; color: #e8e8e6;
-    padding: 10px; font-size: 13.5px; font-family: inherit;
+    padding: 12px; font-size: 14px; font-family: inherit;
   }
+  .live-token-bar {
+    display: flex; justify-content: flex-end; align-items: center; gap: 6px;
+    font-size: 12px; color: #8a8d91; margin-top: 4px; margin-bottom: 8px;
+  }
+  .live-token-pill {
+    background: #23262f; color: #38bdf8; padding: 2px 8px; border-radius: 12px; font-weight: 600;
+  }
+
   select, button {
-    font-size: 13px; padding: 7px 12px; border-radius: 6px; border: 1px solid #2a2c33;
+    font-size: 13px; padding: 8px 14px; border-radius: 6px; border: 1px solid #2a2c33;
     background: #0f1115; color: #e8e8e6; font-family: inherit; cursor: pointer;
   }
-  .row { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
   .samples { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-  .chip { font-size: 12px; padding: 5px 10px; border-radius: 999px; }
-  .chip:hover { border-color: #52545c; }
-  button.run { background: #e8e8e6; color: #0f1115; font-weight: 500; border: none; padding: 9px 16px; }
+  .chip { font-size: 12px; padding: 5px 10px; border-radius: 999px; background: #1a1d24; border: 1px solid #2a2c33; color: #b4b7bd; }
+  .chip:hover { border-color: #52545c; color: #fff; }
+  
+  button.run-l1 { background: #e8e8e6; color: #0f1115; font-weight: 600; border: none; }
+  button.run-ollama { background: #2563eb; color: #ffffff; font-weight: 600; border: none; }
+  button.run-ollama:hover { background: #1d4ed8; }
+
   pre {
     font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12.5px;
     white-space: pre-wrap; word-break: break-word; background: #0f1115;
     border: 1px solid #2a2c33; border-radius: 6px; padding: 12px; margin: 0;
   }
-  .status { font-size: 12.5px; padding: 3px 9px; border-radius: 999px; display: inline-block; margin-bottom: 8px; }
-  .status.allow { background: #17331a; color: #97c459; }
-  .status.block { background: #3a1616; color: #f09595; }
-  .muted { color: #6f716f; font-size: 12.5px; }
-  .err { color: #f09595; font-size: 13px; }
+  .status { font-size: 12.5px; padding: 4px 10px; border-radius: 999px; display: inline-block; margin-bottom: 8px; font-weight: 600; }
+  .status.allow { background: #17331a; color: #4ade80; border: 1px solid #235327; }
+  .status.ollama { background: #1e293b; color: #38bdf8; border: 1px solid #0369a1; }
+  .status.block { background: #3a1616; color: #f87171; border: 1px solid #6b1f1f; }
+  .muted { color: #8a8d91; font-size: 12.5px; }
+  .err { color: #f87171; font-size: 13px; }
+
+  /* Token Dashboards */
+  .metrics-header {
+    font-size: 13px; font-weight: 600; color: #e2e8f0; margin: 16px 0 8px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .metric-box {
+    background: #111317;
+    border: 1px solid #2a2c33;
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .metric-label {
+    font-size: 11px;
+    color: #8a8d91;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .metric-val {
+    font-size: 22px;
+    font-weight: 700;
+    color: #f8fafc;
+  }
+  .metric-val .unit {
+    font-size: 13px;
+    font-weight: 400;
+    color: #8a8d91;
+    margin-left: 2px;
+  }
+  .metric-box.saving {
+    border-color: #166534;
+    background: #0d1e14;
+  }
+  .metric-box.saving .metric-val {
+    color: #4ade80;
+  }
+  .badge-saving {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: #166534;
+    color: #4ade80;
+    margin-left: 6px;
+    display: inline-block;
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Prompt guard console</h1>
-  <p class="sub">Live against this deployment's actual /guard-and-call endpoint — not a simulation.</p>
+  <h1>Prompt Guard Gateway</h1>
+  <p class="sub"> Snap Dragon's Den Initiative</p>
 
   <div class="card">
-    <h2>Prompt</h2>
-    <textarea id="prompt" placeholder="Type a prompt to test"></textarea>
+    <h2>Input Prompt</h2>
+    <textarea id="prompt" placeholder="Type or paste a prompt with personal data..."></textarea>
+    <div class="live-token-bar">
+      <span>Estimated Input Tokens:</span>
+      <span class="live-token-pill" id="liveTokenCount">0</span>
+    </div>
+    
     <div class="samples" id="samples"></div>
+    
     <div class="row">
       <label class="muted" for="destination">Destination</label>
       <select id="destination">
@@ -56,76 +129,126 @@
         <option value="approved_enterprise_ai">approved_enterprise_ai</option>
         <option value="approved_enterprise_ai_restricted">approved_enterprise_ai_restricted</option>
       </select>
-      <button class="run" id="runBtn">Run</button>
+      <button class="run-l1" id="runL1Btn">Run (L1 Regex)</button>
+      <button class="run-ollama" id="runOllamaBtn">Ollama AI Guard</button>
     </div>
   </div>
 
   <div class="card" id="resultCard" style="display:none;">
-    <h2>Result</h2>
+    <h2>Processing Result & Token Analysis</h2>
     <div id="resultBody"></div>
   </div>
 </div>
 
 <script>
 const SAMPLES = [
+  "Draft an offer letter for John Smith, 555-0199, living at 123 Elm St, base compensation $115,000, start date October 1st, 2026.",
   "Email John Smith at john.smith@acme.com about his order, phone 415-555-0192",
   "Card number 4111 1111 1111 1111 was charged twice",
   "Here's the deploy token: kX9pQ2vR8mN4wZ7tL1cF6hB3jY5sA0dE",
-  "Here's our internal architecture and customer list for review",
   "What's a good subject line for a product launch email?"
 ];
 
+const promptEl = document.getElementById("prompt");
+const liveTokenCountEl = document.getElementById("liveTokenCount");
 const samplesEl = document.getElementById("samples");
+
+function updateLiveTokens() {
+  const text = promptEl.value.trim();
+  if (!text) {
+    liveTokenCountEl.textContent = "0";
+    return;
+  }
+  const tokens = text.match(/\w+|[^\w\s]/g) || [];
+  liveTokenCountEl.textContent = tokens.length;
+}
+
+promptEl.addEventListener("input", updateLiveTokens);
+
 SAMPLES.forEach((s, i) => {
   const b = document.createElement("button");
   b.className = "chip";
   b.textContent = "Example " + (i + 1);
-  b.onclick = () => { document.getElementById("prompt").value = s; };
+  b.onclick = () => { 
+    promptEl.value = s; 
+    updateLiveTokens();
+  };
   samplesEl.appendChild(b);
 });
 
-async function run() {
-  const prompt = document.getElementById("prompt").value;
+async function runPipeline(endpoint, modeLabel, badgeClass) {
+  const prompt = promptEl.value;
   const destination = document.getElementById("destination").value;
   const resultCard = document.getElementById("resultCard");
   const resultBody = document.getElementById("resultBody");
   resultCard.style.display = "block";
-  resultBody.innerHTML = "<span class='muted'>Running…</span>";
+  resultBody.innerHTML = `<span class='muted'>Executing pipeline via ${escapeHtml(modeLabel)}…</span>`;
 
   if (!prompt.trim()) {
-    resultBody.innerHTML = "<span class='err'>Enter a prompt first.</span>";
+    resultBody.innerHTML = "<span class='err'>Please enter a prompt first.</span>";
     return;
   }
 
   try {
-    const res = await fetch("/guard-and-call", {
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt, destination })
     });
-    if (!res.ok) throw new Error("Request failed: " + res.status);
+    if (!res.ok) throw new Error("Server responded with HTTP " + res.status);
     const data = await res.json();
+
+    let metricsHtml = "";
+    if (data.token_metrics) {
+      const tm = data.token_metrics;
+      const isSaving = tm.tokens_saved > 0;
+      metricsHtml = `
+        <div class="metrics-header">TOKEN EFFICIENCY BREAKDOWN</div>
+        <div class="metrics-grid">
+          <div class="metric-box">
+            <div class="metric-label">Original Input</div>
+            <div class="metric-val">${tm.original_tokens} <span class="unit">tokens</span></div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-label">After Optimization</div>
+            <div class="metric-val">${data.blocked ? "0 (Blocked)" : tm.optimized_tokens + ' <span class="unit">tokens</span>'}</div>
+          </div>
+          <div class="metric-box ${isSaving && !data.blocked ? 'saving' : ''}">
+            <div class="metric-label">Tokens Saved</div>
+            <div class="metric-val">
+              ${data.blocked ? tm.original_tokens : tm.tokens_saved} <span class="unit">tokens</span>
+              ${!data.blocked && isSaving ? `<span class="badge-saving">-${tm.percent_reduction}%</span>` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    }
 
     if (data.blocked) {
       resultBody.innerHTML = `
-        <span class="status block">BLOCKED</span>
-        <p style="margin:6px 0 12px;">${data.block_reasons.map(r => escapeHtml(r)).join("<br>")}</p>
-        <p class="muted">Sensitivity: ${escapeHtml(data.sensitivity_level)}</p>
-        <p class="muted">Request ID: ${escapeHtml(data.request_id)}</p>
+        <span class="status block">BLOCKED BY POLICY</span>
+        ${metricsHtml}
+        <p style="margin:8px 0 12px; color:#fca5a5;">${data.block_reasons.map(r => escapeHtml(r)).join("<br>")}</p>
+        <p class="muted">Sensitivity Tier: ${escapeHtml(data.sensitivity_level)} | Request ID: ${escapeHtml(data.request_id)}</p>
       `;
     } else {
+      const countsDesc = data.mode === "ollama_direct_llm"
+        ? "Direct Ollama AI Masking & Token Optimization"
+        : `Entities Detected: ${JSON.stringify(data.entity_counts)}`;
+
       resultBody.innerHTML = `
-        <span class="status allow">ALLOWED</span>
-        <p class="muted" style="margin-top:8px;">Sensitivity: ${escapeHtml(data.sensitivity_level)} — Detected: ${JSON.stringify(data.entity_counts)}</p>
-        <p class="muted" style="margin:10px 0 4px;">Sanitized prompt sent to LLM</p>
+        <span class="status ${badgeClass}">${escapeHtml(modeLabel)}</span>
+        <p class="muted" style="margin-top:6px;">Sensitivity Tier: ${escapeHtml(data.sensitivity_level)} — ${escapeHtml(countsDesc)}</p>
+        ${metricsHtml}
+        <p class="muted" style="margin:12px 0 4px; font-weight:600;">Sanitized / Optimized Prompt Sent to LLM</p>
         <pre>${escapeHtml(data.sanitized_prompt)}</pre>
-        <p class="muted" style="margin:10px 0 4px;">LLM response (rehydrated for user)</p>
+        <p class="muted" style="margin:12px 0 4px; font-weight:600;">Final LLM Response</p>
         <pre>${escapeHtml(data.llm_response)}</pre>
         <p class="muted" style="margin-top:10px;">Request ID: ${escapeHtml(data.request_id)}</p>
       `;
     }
   } catch (e) {
-    resultBody.innerHTML = `<span class="err">${escapeHtml(e.message)} — is the server running?</span>`;
+    resultBody.innerHTML = `<span class='err'>${escapeHtml(e.message)} — confirm the proxy server and Ollama are running.</span>`;
   }
 }
 
@@ -133,7 +256,13 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-document.getElementById("runBtn").addEventListener("click", run);
+document.getElementById("runL1Btn").addEventListener("click", () => {
+  runPipeline("/guard-and-call", "L1 REGEX PIPELINE", "allow");
+});
+
+document.getElementById("runOllamaBtn").addEventListener("click", () => {
+  runPipeline("/ollama-guard-and-call", "OLLAMA AI DIRECT", "ollama");
+});
 </script>
 </body>
 </html>
