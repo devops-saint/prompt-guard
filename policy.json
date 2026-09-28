@@ -4,11 +4,11 @@
   "rules": {
     "EMAIL": "tokenize",
     "PHONE": "tokenize",
-    "SSN": "block",
-    "CREDIT_CARD": "block",
+    "SSN": "tokenize",
+    "CREDIT_CARD": "tokenize",
     "IP_ADDRESS": "mask",
-    "API_KEY": "block",
-    "POTENTIAL_SECRET": "block",
+    "API_KEY": "tokenize",
+    "POTENTIAL_SECRET": "tokenize",
     "PERSON_NAME": "tokenize"
   }
 }

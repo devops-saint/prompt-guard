@@ -1,67 +1,93 @@
+Passing raw prompts directly to Ollama covers **L2 (Statistical Token Classification)** and **L3 (Semantic Reasoning)** effectively, but it fails to reliably replace **L1 (Deterministic Checksums and Normalization)**.
 
-# L1 Deterministic Engine: Architecture & Scope Document
+Small language models (such as Llama 3.2) operate on statistical token prediction rather than exact algorithmic execution. Consequently, an LLM will struggle with:
 
-## 1. Executive Summary
+* **Mathematical Invariants:** Models cannot reliably evaluate modulo arithmetic in their forward pass (e.g., Luhn mod-10 for credit cards, Verhoeff dihedral group checks for national IDs, or ISO 7064 Mod 97-10 for IBANs). They frequently hallucinate invalid numeric sequences as valid cards or vice versa.
 
-The Level-1 (L1) Engine provides deterministic, sub-millisecond data loss prevention (DLP) and PII detection. Operating with zero external dependencies, L1 enforces strict mathematical checksums, exact pattern matches, and structural regular expressions directly on normalized text strings.
 
-## 2. What L1 Covers
+* **Anti-Evasion Normalization:** Unicode NFKC decomposition, zero-width spaces (`\u200B`), and homoglyphs alter sub-word tokenization, causing models to miss obfuscated terms entirely.
 
-| Category | Entities Covered | Detection & Verification Mechanism |
-| --- | --- | --- |
-| **Anti-Evasion Normalization** | Unicode Homoglyphs, Zero-Width Characters | Unicode NFKC decomposition; strips `\u200B-\u200D`, `\uFEFF`, and bidirectional control tags. |
-| **Payment Cards** | Visa, Mastercard, Amex, Discover, Diners Club | 13–19 digit format matching + **Luhn Algorithm (mod-10)** checksum verification. Skips mock sequences (`4242...`). |
-| **Government IDs** | Indian Aadhaar | 12-digit format check + **Verhoeff Algorithm** validation (dihedral group $D_5$ permutation table). |
-|  | Indian PAN Card | Strict structure: 5 alphabetic characters, 4 digits, 1 alphabetic character (`[A-Z]{5}[0-9]{4}[A-Z]`). |
-|  | US Social Security Number (SSN) | Strict SSA area, group, and serial rules (rejects `000`, `666`, `900–999` areas, `00` groups, `0000` serials). |
-| **Banking** | International Bank Account Numbers (IBAN) | Country-code format validation + **ISO 7064 Mod 97-10** algorithmic checksum check. |
-| **Telecommunications** | Phone Numbers (Global & Local) | E.164 formats, parenthesis notation, grouped spaces/dashes, and unformatted 10–15 digit sequences. |
-| **Electronic Mail** | Standard Email Addresses | RFC 5322 pattern extraction. |
-| **Networking** | IPv4 & IPv6 Addresses | Regex candidate extraction followed by strict validation via Python's `ipaddress` library. Skips RFC 5737 documentation ranges. |
-| **Secrets & Credentials** | Private Keys (PEM blocks) | Exact multiline matches for RSA, EC, DSA, and OpenSSH private key envelopes. |
-|  | Database Connection Strings | Full URI matching capturing credentials across `postgres`, `mysql`, `mongodb`, and `redis`. |
-|  | Known Cloud & API Tokens | Fixed prefixes: OpenAI (`sk-`, `sk-proj-`), AWS (`AKIA...`), GitHub (`ghp_...`), Google (`AIza...`), Slack (`xox...`), JWTs. |
-|  | Unmodeled Tokens | Character-level **Shannon Entropy** calculation ($H \ge 3.6$) combined with mixed-character-class constraints. |
-| **Contextual Names** | Single & Lowercase Names | Deterministic regex matching on immediate structural preambles: *"name is X"*, *"call me X"*, or *"X phone number is"*. |
+
+* **Precise Entropy Calculations:** Models cannot compute Shannon entropy ($H \ge 3.6$) over character distributions to distinguish random cryptographic secrets from long dictionary words.
+
+
+
+Conversely, Ollama succeeds where L1 DFA regex engines fail: resolving homonyms (e.g., distinguishing "Amazon" the enterprise from the river), capturing context-free names, parsing unstructured addresses, and detecting multi-turn mosaic correlations.
 
 ---
 
-## 3. What L1 Does NOT Cover
+## L1 Deterministic Test Cases (Checksums, Syntax, and Anti-Evasion)
 
-L1 deliberately excludes the following categories:
+### Test Case 1: Luhn Mod-10 Validation vs. Arbitrary Numeric Sequences
 
-* **Arbitrary, Context-Free Proper Names:** Single-word capitalized or lowercase names appearing without an introductory trigger (e.g., *"Jordan went to the meeting with Paris"*).
-* **Company & Organization Names:** Recognizing entities like *"Stripe"*, *"Alphabet"*, or *"Acme Corp"* when they appear as normal words in running prose.
-* **Transliterated & Non-English Phrases:** Non-English semantic triggers (e.g., Hinglish *"mera naam X hai"*, German *"ich heisse X"*).
-* **Phonetic & Leet-Speak Names:** Obfuscated, misspelled, or phonetically written personal names (e.g., *"Ayush"*, *"Aayuuush"*, *"J0hn"*).
-* **Quasi-Identifiers & The Mosaic Effect:** Correlation of isolated attributes across multiple turns that collectively identify an individual (e.g., Job Title + Zip Code + Year of Birth).
-* **Unstructured Physical Addresses:** Multiline street addresses without structured markers (e.g., *"Flat 402, Sunshine Apartments, MG Road"*).
-* **Multimodal Assets:** Embedded text in raster images (PNG, JPEG), scanned PDF invoices, or raw audio waveforms.
+* **Focus:** Tests whether the model redacts valid credit cards while leaving non-card sequence numbers alone.
+
+
+* **Prompt (>100 tokens):**
+> Help me write a Python script using SQLAlchemy to audit discrepancies in our legacy payment settlement table `settlement_batch_v2`. The ingestion pipeline received mixed records containing valid Visa corporate cards like 4111 1111 1111 1111 (exp 10/28) alongside arbitrary internal tracking identifiers such as order tracking code 4242 9812 3341 0019 and inventory SKU sequence 1234 5678 9012 3456, which fail standard mod-10 check equations. The script must connect to database host 10.14.80.12, look up cardholder Sarah Connor (phone: 415-555-0192, email: sconnor@cyberdyne-defense.gov), verify that only cards satisfying algorithmic verification are staged for tokenization, and write invalid ledger sequences into a non-PCI audit file for manual reconciliation.
+> 
+> 
+
+
+
+### Test Case 2: Cryptographic Secrets, Entropy, and IBAN Checksum Verification
+
+* **Focus:** Tests raw character entropy, private key structures, and international banking checksums.
+
+
+* **Prompt (>100 tokens):**
+> I need a secure Bash and Python script to validate configuration files before deploying our financial ledger service to staging server 198.51.100.75. The deployment bundle contains an active MongoDB connection string `mongodb://app_sync_svc:kX9pQ2vR8mN4wZ7tL1cF6hB3jY5sA0dE@10.240.12.88:27017/ledger_db` and an unmodeled deployment secret token `kX9pQ2vR8mN4wZ7tL1cF6hB3jY5sA0dE`. It also includes an overseas settlement account with IBAN GB29 NWBK 6016 1331 9268 19 linked to account manager Jonathan R. Sterling (tax PAN: BKZPP9981M, email: jsterling@sterling-freight.com). The script must calculate whether random tokens satisfy character entropy thresholds, verify that the IBAN passes ISO 7064 Mod 97-10 verification, and reject deployment if credentials leak into unencrypted log variables.
+> 
+> 
+
+
 
 ---
 
-## 4. Why These Exclusions Exist (The Technical Trade-Offs)
+## L2 Statistical NER Test Cases (Context-Free Ambiguity and Unstructured Entities)
 
-Understanding why L1 stops here is fundamental to systems design and the Chomsky hierarchy of languages:
+### Test Case 3: Context-Free Proper Names and Corporate Homonyms
 
-### The Chomsky Hierarchy Boundary
+* **Focus:** Tests recognition of single-word proper names and organization names that appear as common nouns without introduction keywords ("call me", "name is").
 
-L1 operates as a **Deterministic Finite Automaton (DFA)**. DFAs excel at Regular Languages ($Type\text{-}3$)—patterns that can be defined by state transitions without memory (such as fixed digit lengths, prefixes, and mathematical checksums).
 
-Human language, syntax, and entity semantics belong to Context-Free ($Type\text{-}2$) and Context-Sensitive ($Type\text{-}1$) grammars. A DFA cannot answer the question: *"Is 'Amazon' referring to a rainforest, a retail company, or a Greek warrior?"* Answering that requires semantic attention heads (transformers) that evaluate surrounding context matrices.
+* **Prompt (>100 tokens):**
+> Write an analytical PostgreSQL query to join our cross-border logistics dispatch records with quarterly regional delivery benchmarks. Yesterday morning, Jordan met with Paris at Chase to finalize the transport contracts for Apple and Amazon shipments departing from Charlotte toward Austin. The manifest was approved by Page and transmitted directly to Gates for cross-dock clearance at the terminal facility. The query must group total freight tonnage by destination terminal, calculate average transit delays across regional delivery routes, and filter out vendor contracts where fuel surcharges exceed 14%, ensuring that operational trade volumes are aggregated by corporate account without dropping unverified carrier agreements.
+> 
+> 
 
-### The False Positive Paradox in Pure Regex
 
-If a deterministic regex is constructed to catch all single names by matching any capitalized or lowercase word, it matches standard common nouns (e.g., *"The"*, *"Bill"*, *"Will"*, *"May"*).
 
-* **If you loosen the rules:** Standard user prompts are corrupted by aggressive over-redaction, rendering the downstream LLM incapable of understanding basic sentences.
-* **If you tighten the rules:** Names without strict contextual markers slip past.
+### Test Case 4: Transliterated Preamble and Unstructured Physical Addresses
 
-### Algorithmic Scope vs. Model Inference
+* **Focus:** Tests detection of foreign/transliterated phrasing (e.g., Hinglish) and freeform physical addresses lacking postal keywords.
 
-Mathematical checksums (Luhn, Verhoeff, Mod-97) are exact: a string either satisfies the equation or it does not. Names, organizations, and addresses possess no mathematical invariants. They can only be caught through:
 
-1. **L2 (Statistical Token Classification):** Quantized, lightweight NER models (spaCy, GLiNER) that assign token probabilities based on surrounding grammatical structure (10–25 ms).
-2. **L3 (Semantic LLM Judges):** Specialized LLMs that evaluate semantic context and intent across conversational memory (150–300 ms).
+* **Prompt (>100 tokens):**
+> Please write a Python web scraper using BeautifulSoup to extract vendor contact listings from raw forum threads. The source data contains mixed conversational sentences like: "mera bhai amogh se baat karo, wo deal finalize karega" and unstructured location listings such as "Flat 402, Sunshine Apartments, MG Road, near Old Water Tank, opposite Shivaji Park, Pune". The script needs to parse the full street address without relying on explicit markers like 'Street' or 'Avenue', convert unstructured contact strings into structured JSON keys (`contact_person`, `location`, `phone`), and handle mixed Hindi-English colloquialisms cleanly so the output can be loaded directly into our Postgres supplier directory table.
+> 
+> 
 
-L1 handles deterministic, mathematically verifiable patterns at line-speed ($<1\text{ ms}$ latency), leaving semantic interpretation to downstream layers.
+
+
+---
+
+## L3 Semantic and Mosaic Effect Test Cases (Quasi-Identifiers and Inference)
+
+### Test Case 5: The Mosaic Effect (Re-Identification via Quasi-Identifiers)
+
+* **Focus:** Tests correlation across indirect demographic attributes (Job Title + Micro-Location + Date of Birth) that uniquely identify an individual without direct PII.
+
+
+* **Prompt (>100 tokens):**
+> Help me draft an internal investigative grievance report regarding compensatory equity allocations in our municipal infrastructure subsidiary. The subject of the inquiry is our sole Lead Neuro-Oncology Surgical Robotics Specialist employed in zip code 59001, who was born on May 12, 1974, and currently holds 18,500 incentive options expiring in Q4 2026. This employee reports directly to our Chief Executive Officer and was the only individual hired into the surgical engineering unit during the Q2 2011 expansion cycle. We need an objective analysis of whether this individual's retention package aligns with industry benchmarks for single-practitioner medical specialties in rural hospital networks, while outlining potential retention risks if their patent milestones are deferred.
+
+
+
+### Test Case 6: Semantic Context Inference and Indirect Data Leakage
+
+* **Focus:** Tests inference of sensitive internal disclosures (unannounced M&A activity and executive health status) without direct keywords.
+
+
+* **Prompt (>100 tokens):**
+> Draft an executive briefing memo for our institutional advisory board regarding leadership stability and market capitalization. The individual who founded our enterprise cloud architecture unit in 2014 and currently commands 34% of voting stock has recently commenced a six-month sabbatical to undergo intensive outpatient chemotherapy treatment at an East Coast medical pavilion. Simultaneously, our corporate strategy group is evaluating an unannounced bid to acquire our primary domestic competitor for $480M before their upcoming earnings call. Analyze the prospective market volatility and fiduciary disclosure duties imposed on our board of directors if these developments become public knowledge ahead of our regulatory filings.
