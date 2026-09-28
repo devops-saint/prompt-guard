@@ -1,8 +1,10 @@
 """
 proxy.py
 
-FastAPI proxy gateway with synchronized token measurement, L1 regex guardrails,
-and direct Ollama AI sanitization and compression.
+FastAPI proxy gateway with destination-based routing:
+- 'approved_enterprise_ai': Direct Ollama AI few-shot prompt compression and rewriting.
+- 'approved_enterprise_ai_restricted': Deterministic masking, vaulting, and rehydration via guard.sanitize().
+- 'any' (Public AI): Deterministic masking, vaulting, and rehydration via guard.sanitize().
 """
 
 from pathlib import Path
@@ -20,24 +22,25 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from guard import PromptGuard
+from classifier import SensitivityClassifier
 
 logger = logging.getLogger("prompt_guard.proxy")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 app = FastAPI(title="Enterprise Prompt Guard")
 guard = PromptGuard()
+classifier = SensitivityClassifier.load()
 
 _UI_HTML_PATH = Path(__file__).parent / "ui.html"
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
 
-# Global safety net: Prevent raw HTTP 500 crashes and show the exact error in the UI
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error("Unhandled exception processing request: %s", exc)
     traceback.print_exc()
     return JSONResponse(
-        status_code=200,  # Return 200 so UI can cleanly display the failure
+        status_code=200,
         content={
             "request_id": f"err_{int(time.time() * 1000)}",
             "blocked": True,
@@ -54,7 +57,6 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 def count_tokens_fast(text: str, model: str = "llama3.2") -> int:
-    """Accurately counts tokens; falls back to sub-word token regex if Ollama is busy."""
     if not text or not text.strip():
         return 0
 
@@ -65,7 +67,7 @@ def count_tokens_fast(text: str, model: str = "llama3.2") -> int:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             if "tokens" in data:
                 return len(data["tokens"])
@@ -88,7 +90,6 @@ def compute_token_metrics(original_tokens: int, optimized_tokens: int) -> dict:
 
 
 def call_llm(sanitized_prompt: str, model: str) -> tuple[str, int]:
-    """Dispatches prompt to Ollama, safely returning (response_text, token_count)."""
     if not sanitized_prompt or not sanitized_prompt.strip():
         return "[Empty prompt sent to LLM]", 0
 
@@ -117,7 +118,7 @@ def call_llm(sanitized_prompt: str, model: str) -> tuple[str, int]:
 
 
 def sanitize_and_optimize_with_ollama(raw_prompt: str, model: str) -> str:
-    """Uses Ollama /api/chat with few-shot turns to compress prompt and mask PII."""
+    """The older Ollama few-shot compression and rewrite pipeline."""
     system_prompt = (
         "You are an automated prompt compression and data-privacy engine.\n"
         "Your task is to rewrite the input into a concise, token-efficient instruction.\n"
@@ -152,7 +153,7 @@ def sanitize_and_optimize_with_ollama(raw_prompt: str, model: str) -> str:
         "options": {
             "temperature": 0.0,
             "top_p": 0.1,
-            "num_predict": 128,
+            "num_predict": 256,
         },
     }).encode("utf-8")
 
@@ -172,16 +173,13 @@ def sanitize_and_optimize_with_ollama(raw_prompt: str, model: str) -> str:
             cleaned = re.sub(r"^(Output|Rewritten|Sanitized|Result):\s*", "", cleaned, flags=re.IGNORECASE)
             cleaned = cleaned.strip().strip('"').strip("'")
 
-            # Fallback if model responded conversationally
             if cleaned.lower().startswith(("i'm ready", "what's the", "please provide", "as an ai")):
-                fallback = guard.sanitize(raw_prompt)
-                return fallback.sanitized_prompt or raw_prompt
+                return raw_prompt
 
             return cleaned if cleaned else raw_prompt
     except Exception as e:
-        logger.warning("Ollama sanitization failed (%s). Falling back to L1 regex guard.", e)
-        fallback = guard.sanitize(raw_prompt)
-        return fallback.sanitized_prompt or raw_prompt
+        logger.warning("Ollama rewrite failed (%s). Continuing with original prompt.", e)
+        return raw_prompt
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -208,78 +206,81 @@ class GuardAndCallRequest(BaseModel):
     destination: str = "any"
 
 
-class RehydrateRequest(BaseModel):
-    text: str
-
-
 @app.post("/count-tokens")
 def count_tokens_endpoint(req: TokenCountRequest):
     return {"tokens": count_tokens_fast(req.prompt, req.model)}
 
 
-@app.post("/rehydrate")
-def rehydrate(req: RehydrateRequest):
-    return {"text": guard.rehydrate(req.text)}
-
-
 @app.post("/guard-and-call")
 def guard_and_call(req: GuardAndCallRequest):
-    orig_tokens = count_tokens_fast(req.prompt, req.model)
-    result = guard.sanitize(req.prompt, destination=req.destination)
-
-    if result.blocked:
-        return {
-            "request_id": result.request_id,
-            "blocked": True,
-            "block_reasons": result.block_reasons,
-            "sensitivity_level": result.sensitivity_level,
-            "token_metrics": compute_token_metrics(orig_tokens, 0),
-        }
-
-    opt_tokens = count_tokens_fast(result.sanitized_prompt, req.model)
-    raw_response, _ = call_llm(result.sanitized_prompt, req.model)
-    final_response = guard.rehydrate(raw_response)
-
-    return {
-        "request_id": result.request_id,
-        "blocked": False,
-        "sensitivity_level": result.sensitivity_level,
-        "entity_counts": dict(result.entity_counts),
-        "sanitized_prompt": result.sanitized_prompt,
-        "llm_response": final_response,
-        "canonical_prompt": result.canonical_prompt.to_json() if result.canonical_prompt else None,
-        "token_metrics": compute_token_metrics(orig_tokens, opt_tokens),
-    }
-
-
-@app.post("/ollama-guard-and-call")
-def ollama_guard_and_call(req: GuardAndCallRequest):
-    request_id = f"req_ollama_{int(time.time() * 1000)}"
+    request_id = f"req_{int(time.time() * 1000)}"
     orig_tokens = count_tokens_fast(req.prompt, req.model)
 
-    classification = guard.classifier.classify(req.prompt)
-    if not classification.allowed_for(req.destination, guard.classifier.destination_policy):
+    classification = classifier.classify(req.prompt)
+
+    # 1. Hard block for SECRET keywords across all destinations
+    if classification.level == "SECRET":
         return {
             "request_id": request_id,
             "blocked": True,
             "block_reasons": [
-                f"sensitivity {classification.level} not permitted for destination '{req.destination}'"
+                f"SECRET content detected ({', '.join(classification.matched_terms)}) cannot be processed"
             ],
             "sensitivity_level": classification.level,
             "token_metrics": compute_token_metrics(orig_tokens, 0),
         }
 
-    sanitized_prompt = sanitize_and_optimize_with_ollama(req.prompt, req.model)
-    opt_tokens = count_tokens_fast(sanitized_prompt, req.model)
-    raw_response, _ = call_llm(sanitized_prompt, req.model)
+    # 2. Branch: ONLY 'approved_enterprise_ai' uses the older few-shot Ollama rewriting
+    if req.destination == "approved_enterprise_ai":
+        if not classification.allowed_for(req.destination, classifier.destination_policy):
+            return {
+                "request_id": request_id,
+                "blocked": True,
+                "block_reasons": [
+                    f"sensitivity {classification.level} not permitted for destination '{req.destination}'"
+                ],
+                "sensitivity_level": classification.level,
+                "token_metrics": compute_token_metrics(orig_tokens, 0),
+            }
 
-    return {
-        "request_id": request_id,
-        "blocked": False,
-        "sensitivity_level": classification.level,
-        "entity_counts": {"OLLAMA_AI_MASKED": 1},
-        "sanitized_prompt": sanitized_prompt,
-        "llm_response": raw_response,
-        "mode": "ollama_direct_llm",
-        "token_metrics": compute_token_metrics(orig_tokens, opt_tokens),
-    }
+        sanitized_prompt = sanitize_and_optimize_with_ollama(req.prompt, req.model)
+        opt_tokens = count_tokens_fast(sanitized_prompt, req.model)
+        raw_response, _ = call_llm(sanitized_prompt, req.model)
+
+        return {
+            "request_id": request_id,
+            "blocked": False,
+            "sensitivity_level": classification.level,
+            "entity_counts": {"OLLAMA_AI_OPTIMIZED": 1},
+            "sanitized_prompt": sanitized_prompt,
+            "llm_response": raw_response,
+            "token_metrics": compute_token_metrics(orig_tokens, opt_tokens),
+        }
+
+    # 3. All other destinations ('any' and 'approved_enterprise_ai_restricted') route through guard.sanitize()
+    else:
+        sanitized_result = guard.sanitize(req.prompt, request_id=request_id, destination=req.destination)
+
+        if sanitized_result.blocked:
+            return {
+                "request_id": request_id,
+                "blocked": True,
+                "block_reasons": sanitized_result.block_reasons,
+                "sensitivity_level": classification.level,
+                "token_metrics": compute_token_metrics(orig_tokens, 0),
+            }
+
+        sanitized_prompt = sanitized_result.sanitized_prompt
+        opt_tokens = count_tokens_fast(sanitized_prompt, req.model)
+        raw_response, _ = call_llm(sanitized_prompt, req.model)
+        final_response = guard.rehydrate(raw_response)
+
+        return {
+            "request_id": request_id,
+            "blocked": False,
+            "sensitivity_level": classification.level,
+            "entity_counts": dict(sanitized_result.entity_counts),
+            "sanitized_prompt": sanitized_prompt,
+            "llm_response": final_response,
+            "token_metrics": compute_token_metrics(orig_tokens, opt_tokens),
+        }

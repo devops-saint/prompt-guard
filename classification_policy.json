@@ -19,10 +19,24 @@
     ]
   },
   "destination_policy": {
-    "PUBLIC": ["any"],
-    "INTERNAL": ["approved_enterprise_ai"],
-    "CONFIDENTIAL": ["approved_enterprise_ai"],
-    "RESTRICTED": ["approved_enterprise_ai_restricted"],
+    "PUBLIC": [
+      "any",
+      "approved_enterprise_ai",
+      "approved_enterprise_ai_restricted"
+    ],
+    "INTERNAL": [
+      "any",
+      "approved_enterprise_ai",
+      "approved_enterprise_ai_restricted"
+    ],
+    "CONFIDENTIAL": [
+      "any",
+      "approved_enterprise_ai",
+      "approved_enterprise_ai_restricted"
+    ],
+    "RESTRICTED": [
+      "approved_enterprise_ai_restricted"
+    ],
     "SECRET": []
   }
 }
